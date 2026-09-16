@@ -52,7 +52,7 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px}
 .search{flex:1;position:relative}
 .search input{
   width:100%;padding:11px 36px 11px 14px;border-radius:var(--r-md);
-  border:1px solid var(--line);background:var(--card);font-size:15px;outline:none;
+  border:1px solid var(--line);background:var(--card);font-size:16px;outline:none;
 }
 .search input:focus{border-color:var(--sage)}
 .search .clr{position:absolute;right:6px;top:50%;transform:translateY(-50%);width:26px;height:26px;border-radius:50%;color:var(--muted);font-size:15px}
@@ -193,10 +193,10 @@ header{padding:calc(14px + env(safe-area-inset-top)) 0 6px}
 .btn{display:block;width:100%;padding:12px;border-radius:var(--r-md);background:var(--sage);color:#fff;font-size:14.5px;font-weight:600;text-align:center;margin-top:8px}
 .btn.ghost{background:var(--surface);color:var(--ink-soft);border:1px solid var(--line)}
 .btn.warn{background:var(--clay-pale);color:#8A5B4A}
-textarea{width:100%;min-height:110px;padding:11px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--surface);font-size:12px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical;outline:none}
+textarea{width:100%;min-height:110px;padding:11px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--surface);font-size:16px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;resize:vertical;outline:none}
 .field{margin-bottom:10px}
 .field label{display:block;font-size:12.5px;color:var(--ink-soft);margin-bottom:5px}
-.field input{width:100%;padding:10px 12px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--surface);outline:none}
+.field input{width:100%;padding:10px 12px;border-radius:var(--r-md);border:1px solid var(--line);background:var(--surface);font-size:16px;outline:none}
 .field input[type=color]{height:46px;padding:4px}
 
 /* ---------- 底部導覽 ---------- */
@@ -565,8 +565,6 @@ function customForm(edit) {
 
 /* ---------- 畫面：色卡總覽 ---------- */
 function renderShelf() {
-  const list = sortedPalette().filter(matches);
-  const kindObj = kindOf(kind);
   const states = [['all', '全部'], ['have', '有庫存'], ['low', '快用完'], ['scrap', '有殘線'], ['none', '還沒有'], ['wish', '待買']];
 
   let h = `
@@ -581,7 +579,15 @@ function renderShelf() {
     <button class="chip" data-fam="" aria-pressed="${!famFilter}">全色系</button>
     ${FAMS.map(f => `<button class="chip" data-fam="${esc(f[0])}" aria-pressed="${famFilter === f[0]}"><span class="dot" style="background:${f[1]}"></span>${f[0]}</button>`).join('')}
   </div>
-  <div class="count"><span>${kindObj.full} · ${list.length} 色</span>
+  <div id="shelfBody">${shelfBody()}</div>`;
+  return h;
+}
+
+// 色票列表獨立成一塊，打字搜尋時只更新這裡，輸入框不會被重建（iOS 鍵盤才不會收起來）
+function shelfBody() {
+  const list = sortedPalette().filter(matches);
+  const kindObj = kindOf(kind);
+  let h = `<div class="count"><span>${kindObj.full} · ${list.length} 色</span>
     ${kind === 'other' ? '<button id="addCustom">＋ 新增自訂線</button>' : ''}</div>`;
 
   if (!list.length) {
@@ -614,6 +620,29 @@ function renderShelf() {
 }
 
 
+
+// 挑色的結果區也獨立，理由同 shelfBody
+function pickBody() {
+  const p = proj(projOpen);
+  if (!p) return '';
+  const src = (pickKind === 'other' ? db.custom : DMC).filter(x => {
+    if (pickFam && x.f !== pickFam) return false;
+    if (pickQ) {
+      const q2 = pickQ.toLowerCase().trim();
+      if (!(x.c.toLowerCase().includes(q2) || (x.n || '').toLowerCase().includes(q2)
+        || (x.b || '').toLowerCase().includes(q2))) return false;
+    }
+    return true;
+  });
+  const chosen = new Set(p.colors.map(it => it.k + ':' + it.c));
+  return `<div class="count"><span>已選 ${p.colors.length} 色 · 這裡有 ${src.length} 色</span></div>`
+    + (src.length ? `<div class="pickgrid">${src.map(x => {
+        const on = chosen.has(pickKind + ':' + x.c);
+        return `<button class="pick${on ? ' on' : ''}" data-pick="${esc(x.c)}"
+          style="background:${esc(x.h)};color:${lumOf(x) < 0.58 ? '#fff' : '#2C2825'}">${esc(x.c)}</button>`;
+      }).join('')}</div>` : `<div class="empty"><b>這個條件下沒有色號</b>換個色系試試。</div>`);
+}
+
 /* ---------- 畫面：作品配色 ---------- */
 function renderProj() {
   if (!projOpen) {
@@ -640,16 +669,6 @@ function renderProj() {
   if (!p) { projOpen = null; return renderProj(); }
 
   if (projPick) {
-    const src = (pickKind === 'other' ? db.custom : DMC).filter(x => {
-      if (pickFam && x.f !== pickFam) return false;
-      if (pickQ) {
-        const q2 = pickQ.toLowerCase().trim();
-        if (!(x.c.toLowerCase().includes(q2) || (x.n || '').toLowerCase().includes(q2)
-          || (x.b || '').toLowerCase().includes(q2))) return false;
-      }
-      return true;
-    });
-    const chosen = new Set(p.colors.map(it => it.k + ':' + it.c));
     return `<div class="crumb stick"><h2>挑顏色 · ${esc(p.name)}</h2>
       <button class="done" id="donePick">完成${p.colors.length ? `（${p.colors.length} 色）` : ''}</button></div>
     <div class="kinds" style="margin-top:0">${KINDS.map(k =>
@@ -660,12 +679,7 @@ function renderProj() {
       <button class="chip" data-pf="" aria-pressed="${!pickFam}">全色系</button>
       ${FAMS.map(f => `<button class="chip" data-pf="${esc(f[0])}" aria-pressed="${pickFam === f[0]}"><span class="dot" style="background:${f[1]}"></span>${f[0]}</button>`).join('')}
     </div>
-    <div class="count"><span>已選 ${p.colors.length} 色 · 這裡有 ${src.length} 色</span></div>
-    ${src.length ? `<div class="pickgrid">${src.map(x => {
-      const on = chosen.has(pickKind + ':' + x.c);
-      return `<button class="pick${on ? ' on' : ''}" data-pick="${esc(x.c)}"
-        style="background:${esc(x.h)};color:${lumOf(x) < 0.58 ? '#fff' : '#2C2825'}">${esc(x.c)}</button>`;
-    }).join('')}</div>` : `<div class="empty"><b>這個條件下沒有色號</b>換個色系試試。</div>`}`;
+    <div id="pickBody">${pickBody()}</div>`;
   }
 
   const st = projStat(p);
@@ -847,10 +861,6 @@ function render() {
   m.innerHTML = view === 'shelf' ? renderShelf()
     : view === 'proj' ? renderProj()
     : view === 'wish' ? renderWish() : renderBackup();
-  const qi = document.getElementById('q');
-  if (qi && q) { qi.focus(); qi.setSelectionRange(q.length, q.length); }
-  const pqi = document.getElementById('pq');
-  if (pqi && pickQ) { pqi.focus(); pqi.setSelectionRange(pickQ.length, pickQ.length); }
 }
 
 /* ---------- 事件 ---------- */
@@ -1081,8 +1091,16 @@ document.addEventListener('click', e => {
 });
 
 document.addEventListener('input', e => {
-  if (e.target.id === 'q') { q = e.target.value; render(); }
-  if (e.target.id === 'pq') { pickQ = e.target.value; render(); }
+  if (e.target.id === 'q') {
+    q = e.target.value;
+    const el = document.getElementById('shelfBody');
+    if (el) el.innerHTML = shelfBody(); else render();
+  }
+  if (e.target.id === 'pq') {
+    pickQ = e.target.value;
+    const el = document.getElementById('pickBody');
+    if (el) el.innerHTML = pickBody(); else render();
+  }
 });
 
 /* ---------- 長壓拖曳排序 ---------- */
