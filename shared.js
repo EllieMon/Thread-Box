@@ -93,6 +93,95 @@ window.App = (() => {
     window.addEventListener('scroll', () => p.classList.remove('on'), true);
   }
 
+  // ---------- 客製日期／時間選擇器（下拉選單取代原生 date/time，避免撐版） ----------
+  const pad2 = n => String(n).padStart(2, '0');
+  const daysInMonth = (y, m) => new Date(Number(y), Number(m), 0).getDate();
+  function dateField(label, name, val) {
+    const d = val ? new Date(val + 'T00:00:00') : new Date();
+    const y = val ? Number(val.slice(0, 4)) : d.getFullYear();
+    const m = val ? Number(val.slice(5, 7)) : d.getMonth() + 1;
+    const day = val ? Number(val.slice(8, 10)) : d.getDate();
+    const yearOpts = []; for (let yy = y - 4; yy <= y + 6; yy++) yearOpts.push(yy);
+    const dayN = daysInMonth(y, m);
+    return `<div class="datefield" data-datefield="${name}"><label>${label}</label>
+      <input type="hidden" name="${name}" value="${esc(val || '')}">
+      <div class="dsel">
+        <select class="dy">${yearOpts.map(yy => `<option value="${yy}" ${yy === y ? 'selected' : ''}>${yy}</option>`).join('')}</select>
+        <select class="dm">${Array.from({length:12},(_,i)=>i+1).map(mm => `<option value="${mm}" ${mm === m ? 'selected' : ''}>${mm}月</option>`).join('')}</select>
+        <select class="dd">${Array.from({length:dayN},(_,i)=>i+1).map(dd => `<option value="${dd}" ${dd === day ? 'selected' : ''}>${dd}日</option>`).join('')}</select>
+      </div></div>`;
+  }
+  function timeSelects(h, mi) {
+    return `<select class="th">${Array.from({length:24},(_,i)=>i).map(hh => `<option value="${hh}" ${hh === h ? 'selected' : ''}>${pad2(hh)}時</option>`).join('')}</select>
+      <select class="tm">${Array.from({length:60},(_,i)=>i).map(mm => `<option value="${mm}" ${mm === mi ? 'selected' : ''}>${pad2(mm)}分</option>`).join('')}</select>`;
+  }
+  function timeField(label, name, val, opts = {}) {
+    const optional = !!opts.optional;
+    const hasVal = !!val;
+    const [h, mi] = (val || '09:00').split(':').map(Number);
+    return `<div class="timefield" data-timefield="${name}"><label>${label}</label>
+      <input type="hidden" name="${name}" value="${esc(val || '')}">
+      ${optional ? `<label class="check" style="margin-bottom:7px"><input type="checkbox" class="tf-toggle" ${hasVal ? 'checked' : ''}>指定時間（不勾就是不指定）</label>` : ''}
+      <div class="dsel"${optional && !hasVal ? ' style="display:none"' : ''}>${timeSelects(h, mi)}</div></div>`;
+  }
+  function datetimeField(label, name, val) {
+    const datePart = val ? val.slice(0, 10) : today();
+    const timePart = val ? val.slice(11, 16) : '09:00';
+    const d = new Date(datePart + 'T00:00:00');
+    const y = Number(datePart.slice(0, 4)), m = Number(datePart.slice(5, 7)), day = Number(datePart.slice(8, 10));
+    const [h, mi] = timePart.split(':').map(Number);
+    const yearOpts = []; for (let yy = y - 4; yy <= y + 6; yy++) yearOpts.push(yy);
+    const dayN = daysInMonth(y, m);
+    return `<div class="datetimefield" data-datetimefield="${name}"><label>${label}</label>
+      <input type="hidden" name="${name}" value="${esc(val || '')}">
+      <div class="dsel">
+        <select class="dy">${yearOpts.map(yy => `<option value="${yy}" ${yy === y ? 'selected' : ''}>${yy}</option>`).join('')}</select>
+        <select class="dm">${Array.from({length:12},(_,i)=>i+1).map(mm => `<option value="${mm}" ${mm === m ? 'selected' : ''}>${mm}月</option>`).join('')}</select>
+        <select class="dd">${Array.from({length:dayN},(_,i)=>i+1).map(dd => `<option value="${dd}" ${dd === day ? 'selected' : ''}>${dd}日</option>`).join('')}</select>
+      </div>
+      <div class="dsel">${timeSelects(h, mi)}</div></div>`;
+  }
+  function refreshDayOptions(grp) {
+    const ySel = grp.querySelector('.dy'), mSel = grp.querySelector('.dm'), dSel = grp.querySelector('.dd');
+    if (!ySel || !mSel || !dSel) return;
+    const y = Number(ySel.value), m = Number(mSel.value), cur = Number(dSel.value);
+    const n = daysInMonth(y, m);
+    if (dSel.options.length !== n) {
+      const keep = Math.min(cur, n);
+      dSel.innerHTML = Array.from({length:n},(_,i)=>i+1).map(dd => `<option value="${dd}" ${dd === keep ? 'selected' : ''}>${dd}日</option>`).join('');
+    }
+  }
+  function syncHiddenDate(grp) {
+    refreshDayOptions(grp);
+    const y = grp.querySelector('.dy').value, m = pad2(grp.querySelector('.dm').value), d = pad2(grp.querySelector('.dd').value);
+    grp.querySelector('input[type=hidden]').value = `${y}-${m}-${d}`;
+  }
+  function syncHiddenTime(grp) {
+    const h = pad2(grp.querySelector('.th').value), mi = pad2(grp.querySelector('.tm').value);
+    grp.querySelector('input[type=hidden]').value = `${h}:${mi}`;
+  }
+  function syncHiddenDatetime(grp) {
+    refreshDayOptions(grp);
+    const y = grp.querySelector('.dy').value, m = pad2(grp.querySelector('.dm').value), d = pad2(grp.querySelector('.dd').value);
+    const h = pad2(grp.querySelector('.th').value), mi = pad2(grp.querySelector('.tm').value);
+    grp.querySelector('input[type=hidden]').value = `${y}-${m}-${d}T${h}:${mi}`;
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('change', e => {
+      if (e.target.classList && e.target.classList.contains('tf-toggle')) {
+        const grp = e.target.closest('[data-timefield]');
+        const dsel = grp.querySelector('.dsel');
+        if (e.target.checked) { dsel.style.display = ''; syncHiddenTime(grp); }
+        else { dsel.style.display = 'none'; grp.querySelector('input[type=hidden]').value = ''; }
+        return;
+      }
+      if (!e.target.matches('select')) return;
+      const dg = e.target.closest('[data-datefield]'); if (dg) return syncHiddenDate(dg);
+      const tg = e.target.closest('[data-timefield]'); if (tg) return syncHiddenTime(tg);
+      const dtg = e.target.closest('[data-datetimefield]'); if (dtg) return syncHiddenDatetime(dtg);
+    });
+  }
+
   // ---------- 可點擊麵包屑 ----------
   // items: [{label, href}]，最後一項不給 href（代表目前頁面）
   function breadcrumb(items){
@@ -156,6 +245,7 @@ window.App = (() => {
     THREAD_KEY, COST_KEY, readThread, writeThread, readCost, writeCost,
     id, esc, money, today, num,
     photoDB, getPhoto, delPhoto, saveFiles, backup, restore, download,
-    fitDialogs, ensureInfoPop, breadcrumb, initNav
+    fitDialogs, ensureInfoPop, breadcrumb, initNav,
+    dateField, timeField, datetimeField
   };
 })();
