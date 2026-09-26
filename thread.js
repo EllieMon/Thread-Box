@@ -194,7 +194,7 @@ function show(html, callback) {
     try { await callback(new FormData(form)); dialog.close(); save(); saveCost(); render(); }
     catch (err) { toast(err.message || '儲存失敗'); btn.disabled = false; }
   };
-  dialog.showModal(); App.fitDialogs();
+  dialog.showModal(); App.fitDialogs(); App.killAutoFocus(dialog);
 }
 form.addEventListener('click', e => { if (e.target.id === 'cancelDialog2') dialog.close(); });
 const field = (label, name, val = '', type = 'text', extra = '') => `<label>${label}<input name="${name}" type="${type}" value="${esc(val)}" ${extra}></label>`;

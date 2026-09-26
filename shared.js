@@ -73,8 +73,17 @@ window.App = (() => {
   }
   if (typeof document !== 'undefined') {
     document.addEventListener('focusin', e => {
+      const dlg = e.target.closest && e.target.closest('dialog[open]');
+      if (dlg && ['TEXTAREA','INPUT','SELECT'].includes(e.target.tagName)) {
+        const foot = dlg.querySelector('.foot');
+        if (foot) foot.classList.add('unstick');
+      }
       const inFloating = e.target.closest && e.target.closest('dialog[open], .modal.on, .sheet.on, .popcard.on');
       if (inFloating) setTimeout(() => { try { e.target.scrollIntoView({block:'center', behavior:'smooth'}); } catch (_) {} }, 80);
+    });
+    document.addEventListener('focusout', e => {
+      const dlg = e.target.closest && e.target.closest('dialog[open]');
+      if (dlg) { const foot = dlg.querySelector('.foot'); if (foot) foot.classList.remove('unstick'); }
     });
   }
 
@@ -98,6 +107,13 @@ window.App = (() => {
       if (!e.target.closest('#infopop')) p.classList.remove('on');
     });
     window.addEventListener('scroll', () => p.classList.remove('on'), true);
+  }
+
+  function killAutoFocus(dialogEl){
+    const h = dialogEl && (dialogEl.querySelector('h2') || dialogEl.querySelector('h3'));
+    if (!h) return;
+    if (!h.hasAttribute('tabindex')) h.setAttribute('tabindex', '-1');
+    try { h.focus({ preventScroll: true }); } catch (_) { h.focus(); }
   }
 
   // ---------- 客製日期／時間選擇器（下拉選單取代原生 date/time，避免撐版） ----------
@@ -251,7 +267,7 @@ window.App = (() => {
     THREAD_KEY, COST_KEY, readThread, writeThread, readCost, writeCost,
     id, esc, money, today, num,
     photoDB, getPhoto, delPhoto, saveFiles, backup, restore, download,
-    fitDialogs, ensureInfoPop, breadcrumb, initNav,
+    fitDialogs, ensureInfoPop, breadcrumb, initNav, killAutoFocus,
     dateField, timeField, datetimeField,
     getLastBackup, setLastBackup, backupOverdueDays, isBackupOverdue
   };
