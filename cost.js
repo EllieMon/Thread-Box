@@ -175,4 +175,8 @@ document.addEventListener('mousemove',dragMove);
 document.addEventListener('mouseup',dragEnd);
 
 render();
+window.addEventListener('hashchange', () => {
+  const h = (location.hash || '').slice(1);
+  if (['palette', 'pieces'].includes(h) && h !== tab) { tab = h; opened = null; render(); }
+});
 })();

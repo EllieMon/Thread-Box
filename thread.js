@@ -636,3 +636,7 @@ document.addEventListener('input', e => {
 });
 
 render();
+window.addEventListener('hashchange', () => {
+  const h = (location.hash || '').slice(1);
+  if (['shelf', 'purchases', 'wish'].includes(h) && h !== view) { view = h; render(); }
+});
