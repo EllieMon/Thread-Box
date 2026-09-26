@@ -10,7 +10,7 @@ const fmt=x=>x?esc(x):'—';
 const stockOf=p=>p.thread?num(App.readThread().stock?.[p.thread+':'+p.color]?.skeins):num(p.stock);
 function toast(t){const el=document.getElementById('notice');el.textContent=t;el.classList.add('on');setTimeout(()=>el.classList.remove('on'),2800)}
 function persist(){try{App.writeCost(db);render()}catch(e){toast('儲存失敗，請先下載備份並釋出手機空間')}}
-function show(html,callback){form.onclick=null;form.onchange=null;form.innerHTML=html+'<div class="foot"><button type="button" id="cancelDialog">取消</button><button class="primary" type="submit">儲存</button></div>';form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{await callback(new FormData(form));dialog.close();persist()}catch(err){toast(err.message||'儲存失敗');btn.disabled=false}};dialog.showModal()}
+function show(html,callback){form.onclick=null;form.onchange=null;form.innerHTML=html+'<div class="foot"><button type="button" id="cancelDialog">取消</button><button class="primary" type="submit">儲存</button></div>';form.onsubmit=async e=>{e.preventDefault();const btn=form.querySelector('[type=submit]');btn.disabled=true;try{await callback(new FormData(form));dialog.close();persist()}catch(err){toast(err.message||'儲存失敗');btn.disabled=false}};dialog.showModal();App.fitDialogs()}
 form.addEventListener('click',e=>{if(e.target.id==='cancelDialog')dialog.close()});
 const field=(label,name,val='',type='text',extra='')=>`<label>${label}<input name="${name}" type="${type}" value="${esc(val)}" ${extra}></label>`;
 const select=(label,name,options,value)=>`<label>${label}<select name="${name}">${options.map(([v,t])=>`<option value="${esc(v)}" ${String(v)===String(value)?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;

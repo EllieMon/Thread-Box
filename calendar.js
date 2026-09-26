@@ -9,7 +9,7 @@ const num=x=>Math.max(0,Number(x)||0);
 const hours=x=>`${Math.round(x*10)/10} 小時`;
 function toast(t){const e=document.getElementById('notice');e.textContent=t;e.classList.add('on');setTimeout(()=>e.classList.remove('on'),2800)}
 function save(){try{App.writeCost(db);render()}catch(e){toast('儲存失敗，請先備份資料')}}
-function modal(html,cb){form.innerHTML=html+'<div class="foot"><button type="button" id="cancel">取消</button><button class="primary" type="submit">確認儲存</button></div>';form.onsubmit=e=>{e.preventDefault();try{cb(new FormData(form));dialog.close();save()}catch(err){toast(err.message||'無法儲存')}};dialog.showModal()}
+function modal(html,cb){form.innerHTML=html+'<div class="foot"><button type="button" id="cancel">取消</button><button class="primary" type="submit">確認儲存</button></div>';form.onsubmit=e=>{e.preventDefault();try{cb(new FormData(form));dialog.close();save()}catch(err){toast(err.message||'無法儲存')}};dialog.showModal();App.fitDialogs()}
 form.onclick=e=>{if(e.target.id==='cancel')dialog.close()};
 const field=(label,name,val='',type='text',extra='')=>`<label>${label}<input name="${name}" type="${type}" value="${esc(val||'')}" ${extra}></label>`;
 const select=(label,name,opts,value)=>`<label>${label}<select name="${name}">${opts.map(([k,t])=>`<option value="${esc(k)}" ${k===value?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;

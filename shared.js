@@ -45,5 +45,25 @@ window.App = (() => {
     localStorage.setItem(THREAD_KEY,JSON.stringify(obj.thread));writeCost(obj.cost);
   }
   function download(name,body,type='application/json'){const a=document.createElement('a');const u=URL.createObjectURL(new Blob([body],{type}));a.href=u;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(u),10000)}
-  return {THREAD_KEY,readCost,writeCost,readThread,writeThread,id,esc,money,today,num,photoDB,getPhoto,delPhoto,saveFiles,backup,restore,download};
+  // 鍵盤彈出時，iOS 不會自動縮小 vh 高度計算，對話框/浮動視窗的底部按鈕容易被鍵盤蓋住；
+  // 這裡改用 visualViewport 的即時高度，動態夾住開啟中的浮動視窗高度。
+  function fitDialogs(){
+    const vv = window.visualViewport;
+    const h = vv ? vv.height : window.innerHeight;
+    document.querySelectorAll('dialog[open], .modal.on, .sheet.on').forEach(el => {
+      el.style.maxHeight = Math.max(200, Math.round(h * 0.92)) + 'px';
+      if (!el.style.overflowY) el.style.overflowY = 'auto';
+    });
+  }
+  if (typeof window !== 'undefined' && window.visualViewport) {
+    window.visualViewport.addEventListener('resize', fitDialogs);
+    window.visualViewport.addEventListener('scroll', fitDialogs);
+  }
+  if (typeof document !== 'undefined') {
+    document.addEventListener('focusin', e => {
+      const inFloating = e.target.closest && e.target.closest('dialog[open], .modal.on, .sheet.on');
+      if (inFloating) setTimeout(() => { try { e.target.scrollIntoView({block:'center', behavior:'smooth'}); } catch (_) {} }, 80);
+    });
+  }
+  return {THREAD_KEY,readCost,writeCost,readThread,writeThread,id,esc,money,today,num,photoDB,getPhoto,delPhoto,saveFiles,backup,restore,download,fitDialogs};
 })();

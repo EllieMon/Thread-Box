@@ -215,6 +215,7 @@ function showModal(html, cb) {
   document.getElementById('modalBody').innerHTML = html;
   document.getElementById('mscrim').classList.add('on');
   document.getElementById('modal').classList.add('on');
+  App.fitDialogs();
   setTimeout(() => { const f = document.querySelector('#modal input'); if (f) f.focus(); }, 60);
 }
 function hideModal() {
@@ -533,6 +534,7 @@ function openSheet(code) {
 
   document.getElementById('scrim').classList.add('on');
   document.getElementById('sheet').classList.add('on');
+  App.fitDialogs();
 }
 function closeSheet() {
   const nb = document.getElementById('noteBox');
