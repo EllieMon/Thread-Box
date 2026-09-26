@@ -41,36 +41,37 @@ const FAMTINT = {
   '褐': '#EEE4D8', '黑/灰': '#E6E3E0', '自訂': '#EAE7E3'
 };
 const STATES = [['have', '有庫存'], ['low', '快用完'], ['scrap', '有殘線'], ['none', '還沒有'], ['wish', '待買']];
+const MTYPES = { dmc: 'DMC 線材', thread: '自訂線', fabric: '布', tools: '物品' };
 
 let db = Store.load() || { stock: {}, custom: [], projects: [], projLayout: 'bar', v: 2 };
 if (!db.stock) db.stock = {};
 if (!db.custom) db.custom = [];
 if (!db.projects) db.projects = [];
-if (!db.projLayout) db.projLayout = 'bar';
+let costDb = App.readCost();
+const saveCost = () => App.writeCost(costDb);
 
-let view = 'shelf';          // shelf | proj | wish
+let view = 'shelf';          // shelf(總覽) | purchases(採購紀錄) | wish(預購物品)
 {
   const h = (location.hash || '').slice(1);
-  if (['shelf', 'proj', 'wish'].includes(h)) view = h;
+  if (['shelf', 'purchases', 'wish'].includes(h)) view = h;
 }
 let type = 'dmc';
 let q = '';
-let statusSel = new Set();   // 可複選：有庫存/快用完/有殘線/還沒有/待買
-let familySel = new Set();   // 可複選：色系（僅 dmc/自訂線）
+let statusSel = new Set();
+let familySel = new Set();
 let filterOpen = false;
 let openKey = null;
-let projOpen = null, projPick = false;
-let pickType = 'dmc', pickFamilySel = new Set(), pickQ = '';
 let buyQty = {};
+let search = '';
 
 const save = () => Store.save(db);
 const key = (t, c) => t + ':' + c;
 const rec = (t, c) => db.stock[key(t, c)] || null;
 function setRec(t, c, patch) {
   const id = key(t, c);
-  const cur = db.stock[id] || { qty: 0, level: 'full', wish: false, scrap: false, note: '' };
+  const cur = db.stock[id] || { qty: 0, level: 'full', wish: false, scrap: false, note: '', photos: [] };
   const next = { ...cur, ...patch };
-  if (!next.qty && !next.wish && !next.scrap && !next.note) delete db.stock[id];
+  if (!next.qty && !next.wish && !next.scrap && !next.note && !(next.photos && next.photos.length)) delete db.stock[id];
   else db.stock[id] = next;
   save();
 }
@@ -151,17 +152,7 @@ function findColor(t, c) {
   const x = db.custom.find(i => i.id === c);
   return x || { c: c, n: '', h: '#cccccc', f: '自訂', name: '（已刪除）' };
 }
-const proj = pid => db.projects.find(p => p.id === pid);
-function projStat(p) {
-  let miss = 0, todo = 0;
-  p.colors.forEach(it => {
-    const r = rec(it.t, it.c);
-    if (r && r.qty > 0) return;
-    miss++;
-    if (!(r && r.wish)) todo++;
-  });
-  return { miss, todo };
-}
+function materialLabel(t, c) { const x = findColor(t, c); return t === 'dmc' ? `${x.c} ${x.n || ''}` : (x.code ? `${x.code} · ${x.name || ''}` : x.name); }
 function lumOf(x) {
   if (typeof x.l === 'number') return x.l;
   const hx = (x.h || '#bfbfbf').replace('#', '');
@@ -169,8 +160,9 @@ function lumOf(x) {
   return (0.2126 * r + 0.7152 * g + 0.0722 * b) / 255;
 }
 const levelLabel = l => (LEVELS.find(x => x[0] === l) || LEVELS[0])[1];
+async function paintPhotos() { for (const el of document.querySelectorAll('[data-photo]')) { try { const src = await App.getPhoto(el.dataset.photo); if (el.isConnected && src) el.src = src; } catch (_) {} } }
 
-/* ---------- 自製對話框 ---------- */
+/* ---------- 自製對話框（簡短：確認、單欄輸入） ---------- */
 let modalCb = null;
 function showModal(html, cb) {
   modalCb = cb || null;
@@ -190,30 +182,54 @@ function askConfirm(title, body, okText, danger, onYes) {
     <div class="mrow"><button class="no" data-m="no">取消</button>
     <button class="yes${danger ? ' danger' : ''}" data-m="ok">${esc(okText)}</button></div>`, onYes);
 }
-function askText(title, hint, placeholder, value, okText, onOk) {
-  showModal(`<h3>${esc(title)}</h3>${hint ? `<p>${esc(hint)}</p>` : ''}
-    <div class="field"><input id="mText" type="text" placeholder="${esc(placeholder)}" value="${esc(value)}"></div>
-    <div class="mrow"><button class="no" data-m="no">取消</button>
-    <button class="yes" data-m="ok">${esc(okText)}</button></div>`,
-    () => onOk((document.getElementById('mText').value || '').trim()));
-}
 
-/* ---------- 新增／編輯品項（線材完整版、布／物品簡化版） ---------- */
+/* ---------- 對話框（豐富表單：新增/編輯品項、登記購買） ---------- */
+const dialog = document.getElementById('editor'), form = document.getElementById('entryForm');
+function show(html, callback) {
+  form.onclick = null; form.onchange = null;
+  form.innerHTML = html + '<div class="foot"><button type="button" id="cancelDialog2">取消</button><button class="primary" type="submit">儲存</button></div>';
+  form.onsubmit = async e => {
+    e.preventDefault();
+    const btn = form.querySelector('[type=submit]'); btn.disabled = true;
+    try { await callback(new FormData(form)); dialog.close(); save(); saveCost(); render(); }
+    catch (err) { toast(err.message || '儲存失敗'); btn.disabled = false; }
+  };
+  dialog.showModal(); App.fitDialogs();
+}
+form.addEventListener('click', e => { if (e.target.id === 'cancelDialog2') dialog.close(); });
+const field = (label, name, val = '', type = 'text', extra = '') => `<label>${label}<input name="${name}" type="${type}" value="${esc(val)}" ${extra}></label>`;
+const fieldFull = (label, name, val = '', type = 'text', extra = '') => `<div class="full">${field(label, name, val, type, extra)}</div>`;
+const select = (label, name, options, value) => `<label>${label}<select name="${name}">${options.map(([v, t]) => `<option value="${esc(v)}" ${String(v) === String(value) ? 'selected' : ''}>${esc(t)}</option>`).join('')}</select></label>`;
+
+/* ---------- 新增／編輯品項（線材完整版、布／物品簡化版；均可附照片） ---------- */
+function photosBlock(pics) {
+  return `<div class="field"><label>照片（至多兩張）</label>
+    <div class="cover">${(pics || []).map(p => `<span style="position:relative;display:inline-block"><img data-photo="${esc(p)}" alt=""><button type="button" class="xbtn" data-delphoto="${esc(p)}" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;font-size:11px">✕</button></span>`).join('')}</div>
+    ${(pics || []).length < 2 ? `<input type="file" id="iPhotos" accept="image/*" multiple>` : '<p class="muted">已達兩張上限，先移除才能再加。</p>'}</div>`;
+}
 function itemForm(t, edit) {
   const simple = typeOf(t).simple;
+  const pics = edit ? (rec(t, edit.id)?.photos || []) : [];
   if (simple) {
     const o = edit || { name: '', unit: t === 'fabric' ? '尺' : '個' };
     showModal(`<h3>${edit ? '編輯' : '新增'}${esc(typeOf(t).label)}</h3>
       <div class="field"><label>名稱</label><input id="iName" type="text" placeholder="例如：格紋棉布、羊眼繡框" value="${esc(o.name)}"></div>
       <div class="field"><label>計量單位</label><input id="iUnit" type="text" value="${esc(o.unit || '個')}"></div>
+      ${edit ? photosBlock(pics) : ''}
       <div class="mrow"><button class="no" data-m="no">取消</button>
-      <button class="yes" data-m="ok">${edit ? '儲存' : '新增'}</button></div>`, () => {
+      <button class="yes" data-m="ok">${edit ? '儲存' : '新增'}</button></div>`, async () => {
       const name = (document.getElementById('iName').value || '').trim();
       const unit = (document.getElementById('iUnit').value || '個').trim();
       if (!name) return toast('請先填名稱');
-      if (edit) { edit.name = name; edit.unit = unit; save(); openKey = edit.id; }
-      else { const rec2 = { id: App.id(), type: t, name, unit }; db.custom.push(rec2); save(); openKey = rec2.id; }
-      render(); openSheet(t, openKey);
+      let id2;
+      if (edit) { edit.name = name; edit.unit = unit; id2 = edit.id; }
+      else { const rec2 = { id: App.id(), type: t, name, unit }; db.custom.push(rec2); id2 = rec2.id; }
+      const fEl = document.getElementById('iPhotos');
+      if (fEl && fEl.files && fEl.files.length) {
+        try { const newPics = await App.saveFiles(fEl.files, pics); setRec(t, id2, { photos: newPics }); }
+        catch (_) { toast('照片儲存失敗，其餘資料已存'); }
+      }
+      save(); openKey = id2; render(); openSheet(t, id2);
     });
     return;
   }
@@ -224,21 +240,32 @@ function itemForm(t, edit) {
     <div class="field"><label>廠牌（可留空）</label><input id="cBrand" type="text" placeholder="例如 Anchor、Madeira、Cosmo" value="${esc(o.brand || '')}"></div>
     <div class="field"><label>名稱或說明（可留空）</label><input id="cName" type="text" placeholder="例如 金蔥 · 淺金" value="${esc(o.name || '')}"></div>
     <div class="field"><label>顏色</label><input id="cHex" type="color" value="${esc(o.h)}"></div>
+    ${edit ? photosBlock(pics) : ''}
     <div class="mrow"><button class="no" data-m="no">取消</button>
-    <button class="yes" data-m="ok">${edit ? '儲存' : '新增'}</button></div>`, () => {
+    <button class="yes" data-m="ok">${edit ? '儲存' : '新增'}</button></div>`, async () => {
     const code = (document.getElementById('cCode').value || '').trim();
     const brand = (document.getElementById('cBrand').value || '').trim();
     const name = (document.getElementById('cName').value || '').trim();
     const h = (document.getElementById('cHex').value || '#BFBFBF').toLowerCase();
     if (!code) return toast('請先填編號');
     if (db.custom.some(x => x.type === 'thread' && x.code === code && (!edit || x.id !== edit.id))) return toast('這個編號已經有了');
-    if (edit) { Object.assign(edit, { code, brand, name, h, f: famOfHex(h) }); save(); openKey = edit.id; }
-    else { const rec2 = { id: App.id(), type: 'thread', code, brand, name, h, f: famOfHex(h), unit: '束' }; db.custom.push(rec2); save(); openKey = rec2.id; }
-    render(); openSheet('thread', openKey);
+    let id2;
+    if (edit) { Object.assign(edit, { code, brand, name, h, f: famOfHex(h) }); id2 = edit.id; }
+    else { const rec2 = { id: App.id(), type: 'thread', code, brand, name, h, f: famOfHex(h), unit: '束' }; db.custom.push(rec2); id2 = rec2.id; }
+    const fEl = document.getElementById('iPhotos');
+    if (fEl && fEl.files && fEl.files.length) {
+      try { const newPics = await App.saveFiles(fEl.files, pics); setRec('thread', id2, { photos: newPics }); }
+      catch (_) { toast('照片儲存失敗，其餘資料已存'); }
+    }
+    save(); openKey = id2; render(); openSheet('thread', id2);
   });
 }
 
 /* ---------- 畫面：材料總覽 ---------- */
+function sectionTabs() {
+  return `<div class="sectiontabs">${[['shelf', '總覽'], ['purchases', '採購紀錄'], ['wish', '預購物品']].map(([v, n]) =>
+    `<button data-gov="${v}" class="${view === v ? 'active' : ''}">${n}</button>`).join('')}</div>`;
+}
 function typeTabs() {
   return `<div class="kinds" id="kinds" role="tablist">${TYPES.map(t =>
     `<button role="tab" data-type="${t.id}" aria-selected="${type === t.id}">${t.label}</button>`).join('')}</div>`;
@@ -272,11 +299,12 @@ function shelfBody() {
       ? `<div class="empty"><b>還沒有${t.label}</b>點上面「新增」建立第一筆。</div>`
       : `<div class="empty"><b>這個條件下沒有品項</b>換個篩選條件或清掉搜尋字看看。</div>`;
   } else if (t.simple) {
-    h += '<div class="pgrid" style="display:grid;grid-template-columns:repeat(2,1fr);gap:9px">' + list.map(x => {
+    h += '<div style="display:grid;grid-template-columns:repeat(2,1fr);gap:9px">' + list.map(x => {
       const r = rec(type, x.id); const has = r && r.qty > 0;
+      const thumb = r && r.photos && r.photos[0];
       return `<button class="cap" data-open="${esc(x.id)}" style="background:var(--surface)">
-        <span class="chip${has ? '' : ' zero'}" style="background:var(--line-soft);color:var(--ink)"><em>${has ? r.qty : 0}</em></span>
-        <span class="body"><b>${esc(x.name)}</b><span class="tags"><i class="none">${esc(x.unit || '個')}</i></span></span>
+        <span class="chip${has ? '' : ' zero'}" style="${thumb ? '' : 'background:var(--line-soft);color:var(--ink)'}">${thumb ? `<img data-photo="${esc(thumb)}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:inherit">` : `<em>${has ? r.qty : 0}</em>`}</span>
+        <span class="body"><b>${esc(x.name)}</b><span class="tags"><i class="none">${has?r.qty:0} ${esc(x.unit || '個')}</i></span></span>
       </button>`;
     }).join('') + '</div>';
   } else {
@@ -305,113 +333,12 @@ function shelfBody() {
   return h;
 }
 
-function pickBody() {
-  const p = proj(projOpen);
-  if (!p) return '';
-  const src = (pickType === 'thread' ? db.custom.filter(x => x.type === 'thread') : DMC).filter(x => {
-    if (pickFamilySel.size && !pickFamilySel.has(x.f)) return false;
-    if (pickQ) {
-      const s = pickQ.toLowerCase().trim();
-      const c = idOf(pickType, x);
-      if (!(String(c).toLowerCase().includes(s) || (x.n || x.name || '').toLowerCase().includes(s) || (x.b || x.brand || '').toLowerCase().includes(s))) return false;
-    }
-    return true;
-  });
-  const chosen = new Set(p.colors.map(it => it.t + ':' + it.c));
-  return `<div class="count"><span>已選 ${p.colors.length} 色 · 這裡有 ${src.length} 色</span></div>`
-    + (src.length ? `<div class="pickgrid">${src.map(x => {
-        const c = idOf(pickType, x);
-        const on = chosen.has(pickType + ':' + c);
-        return `<button class="pick${on ? ' on' : ''}" data-pick="${esc(c)}"
-          style="background:${esc(x.h)};color:${lumOf(x) < 0.58 ? '#fff' : '#2C2825'}">${esc(codeLabel(pickType, x))}</button>`;
-      }).join('')}</div>` : `<div class="empty"><b>這個條件下沒有色號</b>換個色系試試。</div>`);
-}
-
-/* ---------- 畫面：配色紀錄 ---------- */
-function renderProj() {
-  if (!projOpen) {
-    let h = `<div class="panel"><h2>配色紀錄</h2>
-      <p>把想用的線挑進同一個作品，放在一起看整組配色順不順眼。缺哪幾色也會一併幫你標出來。</p>`;
-    if (!db.projects.length) {
-      h += `<div class="empty"><b>還沒有配色紀錄</b>先開一個，名字隨意，之後都能改。</div>`;
-    } else {
-      h += db.projects.map(p => {
-        const sw = p.colors.slice(0, 4).map(it => `<span style="background:${esc(findColor(it.t, it.c).h)}"></span>`).join('');
-        const st = projStat(p);
-        return `<button class="projcard" data-proj="${esc(p.id)}">
-          <span class="mini${sw ? '' : ' none'}">${sw}</span>
-          <span class="txt"><b>${esc(p.name)}</b>
-            <small>${p.colors.length} 色${st.miss ? ` · 缺 ${st.miss} 色` : p.colors.length ? ' · 都有貨' : ''}</small></span>
-          <span class="go">›</span></button>`;
-      }).join('');
-    }
-    h += `<button class="btn" id="newProj" style="margin-top:14px">＋ 新增配色紀錄</button></div>`;
-    return h;
-  }
-
-  const p = proj(projOpen);
-  if (!p) { projOpen = null; return renderProj(); }
-
-  if (projPick) {
-    return `<div class="crumb stick"><h2>挑顏色 · ${esc(p.name)}</h2>
-      <button class="done" id="donePick">完成${p.colors.length ? `（${p.colors.length} 色）` : ''}</button></div>
-    <div class="kinds" style="margin-top:0">${[['dmc','DMC'],['thread','自訂線']].map(k =>
-      `<button data-pk="${k[0]}" aria-selected="${pickType === k[0]}">${k[1]}</button>`).join('')}</div>
-    <div class="searchrow"><div class="search">
-      <input id="pq" type="search" placeholder="找色號" value="${esc(pickQ)}"></div></div>
-    <div style="margin:9px 0 3px"><div class="popanchor"><button class="filterbtn" id="openPickFilter">色系${pickFamilySel.size ? ` · <b>${pickFamilySel.size}</b>` : ''}</button>
-      <div class="popcard${filterOpen ? ' on' : ''}" id="pickFilterPop">
-        <h4>色系（可複選）</h4>
-        <div class="optrow">${FAMS.map(f => `<label class="opt" data-checked="${pickFamilySel.has(f[0])}"><input type="checkbox" data-pfam="${esc(f[0])}" ${pickFamilySel.has(f[0]) ? 'checked' : ''}><span class="dot" style="background:${f[1]}"></span>${f[0]}</label>`).join('')}</div>
-        <div class="closebar" id="closePickFilter">完成</div>
-      </div></div></div>
-    <div id="pickBody">${pickBody()}</div>`;
-  }
-
-  const st = projStat(p);
-  let h = `<div class="crumb"><button data-proj="">‹ 配色紀錄</button><h2>${esc(p.name)}</h2>
-    <span class="viewtog">
-      <button data-pl="bar" aria-selected="${db.projLayout === 'bar'}">色條</button>
-      <button data-pl="grid" aria-selected="${db.projLayout === 'grid'}">色塊</button>
-    </span></div>
-  <div class="ptools">
-    <button class="main" id="pickColors">＋ 挑顏色</button>
-    ${st.todo ? `<button class="wish" id="wishMissing">缺 ${st.todo} 色 · 加進待買</button>`
-      : st.miss ? `<button class="wish" disabled>缺 ${st.miss} 色 · 已在待買</button>` : ''}
-    <button id="renameProj">改名</button>
-    <button class="danger" id="delProj">刪除此配色紀錄</button>
-  </div>`;
-
-  if (!p.colors.length) {
-    h += `<div class="empty"><b>還沒挑任何顏色</b>按下面的按鈕，依色系一次看完一整排。</div>`;
-  } else {
-    h += `<p class="tipline">長壓色票可以拖曳排序；點一下則是從配色紀錄移除。</p>`;
-    const cells = p.colors.map(it => {
-      const x = findColor(it.t, it.c);
-      const r = rec(it.t, it.c);
-      const dark = lumOf(x) < 0.58;
-      const tag = (r && r.qty > 0) ? '' : '<span class="miss">缺</span>';
-      return { x, dark, tag, it };
-    });
-    h += db.projLayout === 'bar'
-      ? cells.map((o, i) => `<button class="pbar" data-idx="${i}" data-drop="${esc(o.it.t)}|${esc(o.it.c)}"
-          style="background:${esc(o.x.h)};color:${o.dark ? '#fff' : '#2C2825'}">
-          <b>${esc(codeLabel(o.it.t, o.x))}</b>${o.tag}</button>`).join('')
-      : `<div class="pgrid">${cells.map((o, i) => `<button class="pcell" data-idx="${i}" data-drop="${esc(o.it.t)}|${esc(o.it.c)}"
-          style="background:${esc(o.x.h)};color:${o.dark ? '#fff' : '#2C2825'}">
-          ${o.tag}<b>${esc(codeLabel(o.it.t, o.x))}</b></button>`).join('')}</div>`;
-  }
-
-  return h;
-}
-
 /* ---------- 畫面：待買清單（預購物品） ---------- */
 function renderWish() {
   const list = wishList();
-  let h = `<div class="panel"><h2>預購物品</h2>
-    <p>買回來之後，先調整每一項要入幾份，再按「入庫」；或一次按最下面的「全部入庫」。</p>`;
+  let h = `<p class="muted">買回來之後，先調整每一項要入幾份，再按「入庫」；或一次按最下面的「全部入庫」。</p>`;
   if (!list.length) {
-    h += `<div class="empty"><b>清單是空的</b>逛店前先來這裡看一眼，就不會又買到重複的材料了。</div></div>`;
+    h += `<div class="empty"><b>清單是空的</b>逛店前先來這裡看一眼，就不會又買到重複的材料了。</div>`;
     return h;
   }
   h += list.map(it => {
@@ -431,17 +358,86 @@ function renderWish() {
     </div>`;
   }).join('');
   h += `<button class="btn" id="buyAll" style="margin-top:16px">全部入庫（${list.length} 項）</button>
-    <button class="btn ghost" id="clearWish">清空整張清單</button></div>`;
+    <button class="btn ghost" id="clearWish">清空整張清單</button>`;
   return h;
+}
+
+/* ---------- 畫面：採購紀錄（材料選擇器＋就地新增＋搜尋） ---------- */
+const allLines = () => costDb.orders.flatMap(o => o.lines.map(l => ({ ...l, date: o.date, store: o.store, orderId: o.id })));
+const line = x => allLines().find(l => l.id === x);
+const order = x => costDb.orders.find(o => o.id === x);
+const money = n => App.money(n), num = n => App.num(n), today = () => App.today();
+function matSlot(item) {
+  const mtype = item?.materialType || 'dmc';
+  if (mtype === 'dmc') {
+    return `<label>DMC 色號 *<input name="materialId" list="dmcList" value="${esc(item?.materialId || '')}" placeholder="輸入色號或名稱，例如 150"></label>
+      <datalist id="dmcList">${DMC.map(x => `<option value="${esc(x.c)}">${esc(x.n)}</option>`).join('')}</datalist>`;
+  }
+  const opts = db.custom.filter(x => x.type === mtype).map(x => [x.id, x.code ? `${x.code} · ${x.name || ''}` : x.name]);
+  return opts.length
+    ? select('選擇材料', 'materialId', opts, item?.materialId || opts[0][0]) + `<button type="button" class="smallbtn" data-quickadd="${mtype}" style="margin:6px 0 2px">＋ 找不到？新增材料</button>`
+    : `<p class="muted">還沒有${esc(MTYPES[mtype])}。</p><button type="button" class="smallbtn" data-quickadd="${mtype}">＋ 先新增一筆</button>`;
+}
+function quickAddMaterial(box, mtype) {
+  const simple = mtype === 'fabric' || mtype === 'tools';
+  box.innerHTML = `<div class="itemform" style="background:var(--surface)">
+    <label>名稱 *<input id="qaName" type="text"></label>
+    ${simple ? `<label>單位<input id="qaUnit" type="text" value="${mtype === 'fabric' ? '尺' : '個'}"></label>`
+      : `<label>編號 *<input id="qaCode" type="text" placeholder="例如 E3852"></label>`}
+    <div style="display:flex;gap:8px;margin-top:8px"><button type="button" class="smallbtn subtle" id="qaCancel">取消</button><button type="button" class="smallbtn" id="qaSave">新增</button></div>
+  </div>`;
+  box.querySelector('#qaCancel').onclick = () => { box.innerHTML = matSlot({ materialType: mtype }); };
+  box.querySelector('#qaSave').onclick = () => {
+    const name = (box.querySelector('#qaName').value || '').trim();
+    if (!name) return toast('請填名稱');
+    let rec2;
+    if (simple) { rec2 = { id: App.id(), type: mtype, name, unit: (box.querySelector('#qaUnit').value || '個').trim() }; }
+    else { const code = (box.querySelector('#qaCode').value || '').trim(); if (!code) return toast('請填編號'); rec2 = { id: App.id(), type: 'thread', code, name, h: '#8B9A8C', f: '自訂', unit: '束' }; }
+    db.custom.push(rec2); save();
+    box.innerHTML = matSlot({ materialType: mtype, materialId: rec2.id });
+  };
+}
+function orderItem(item) {
+  return `<div class="itemform">
+    <button type="button" class="remove" data-remove-item>移除</button>
+    ${select('材料類型', 'materialType', Object.entries(MTYPES).map(([k, v]) => [k, v]), item?.materialType || 'dmc')}
+    <div class="matslot">${matSlot(item)}</div>
+    <div class="formgrid">${field('單價 *', 'unitPrice', item?.unitPrice ?? 0, 'number', 'min="0" step="0.01" required')}${field('數量 *', 'qty', item?.qty || 1, 'number', 'min="0.01" step="0.01" required')}</div>
+    <label class="check"><input type="checkbox" name="sync" ${item?.sync === false ? '' : 'checked'}>同步入庫（材料庫也更新庫存）</label>
+  </div>`;
+}
+function syncPurchase(l) { if (!l.sync) return; setRec(l.materialType, l.materialId, { qty: (rec(l.materialType, l.materialId)?.qty || 0) + num(l.qty), wish: false }); }
+function orderForm(o) { show(`<h2>修改訂單資料</h2><div class="formgrid">${field('商店', 'store', o.store)}${field('訂單編號', 'orderNo', o.orderNo)}</div>${fieldFull('購買日期', 'date', o.date, 'date', 'required')}<div class="formgrid">${field('整單運費', 'shipping', o.shipping, 'number', 'min="0" step="0.01"')}${field('整單折扣', 'discount', o.discount, 'number', 'min="0" step="0.01"')}</div>${field('備註', 'note', o.note)}`, f => { Object.assign(o, { date: String(f.get('date')), store: String(f.get('store')), orderNo: String(f.get('orderNo')), shipping: num(f.get('shipping')), discount: num(f.get('discount')), note: String(f.get('note')) }); }); }
+function lineForm(o, l) {
+  show(`<h2>修改購買項目</h2>${select('材料類型', 'materialType', Object.entries(MTYPES).map(([k, v]) => [k, v]), l.materialType)}<div class="matslot">${matSlot(l)}</div><div class="formgrid">${field('單價', 'unitPrice', l.unitPrice, 'number', 'min="0" step="0.01" required')}${field('數量', 'qty', l.qty, 'number', 'min="0.01" step="0.01" required')}</div>`, f => { l.materialType = String(f.get('materialType')); l.materialId = String(f.get('materialId')); l.unitPrice = num(f.get('unitPrice')); l.qty = num(f.get('qty')); if (!l.qty) throw Error('數量需大於 0'); if (!l.materialId) throw Error('請選擇材料'); });
+  form.onchange = e => { if (e.target.name === 'materialType') { form.querySelector('.matslot').innerHTML = matSlot({ materialType: e.target.value }); } };
+  form.onclick = e => { const qa = e.target.closest('[data-quickadd]'); if (qa) quickAddMaterial(form.querySelector('.matslot'), qa.dataset.quickadd); };
+}
+function newOrder() {
+  show(`<h2>登記整筆購買</h2>${fieldFull('購買日期 *', 'date', today(), 'date', 'required')}<div class="formgrid">${field('商店', 'store')}${field('訂單編號', 'orderNo')}</div><div class="formgrid">${field('整單運費', 'shipping', 0, 'number', 'min="0" step="0.01"')}${field('整單折扣', 'discount', 0, 'number', 'min="0" step="0.01"')}</div><div id="items">${orderItem()}</div><button type="button" class="smallbtn" id="addItem">＋ 再加一項材料</button>${field('備註', 'note')}`, async f => {
+    const nodes = [...form.querySelectorAll('.itemform')]; if (!nodes.length) throw Error('請至少加一項材料');
+    const lines = nodes.map(n => { const materialType = n.querySelector('[name=materialType]').value, materialId = (n.querySelector('[name=materialId]').value || '').trim(), qty = Number(n.querySelector('[name=qty]').value), unitPrice = Number(n.querySelector('[name=unitPrice]').value); if (!materialId || !Number.isFinite(qty) || qty <= 0 || !Number.isFinite(unitPrice) || unitPrice < 0) throw Error('材料、數量或單價不正確'); if (materialType === 'dmc' && !DMC.some(x => x.c === materialId)) throw Error('找不到這個 DMC 色號：' + materialId); return { id: App.id(), materialType, materialId, qty, unitPrice, sync: n.querySelector('[name=sync]').checked }; });
+    costDb.orders.push({ id: App.id(), date: String(f.get('date')), store: String(f.get('store') || ''), orderNo: String(f.get('orderNo') || ''), shipping: num(f.get('shipping')), discount: num(f.get('discount')), note: String(f.get('note') || ''), lines });
+    for (const l of lines) syncPurchase(l);
+    view = 'purchases';
+  });
+  form.onclick = e => { if (e.target.id === 'addItem') { form.querySelector('#items').insertAdjacentHTML('beforeend', orderItem()); paintPhotos(); } if (e.target.matches('[data-remove-item]')) e.target.closest('.itemform').remove(); const qa = e.target.closest('[data-quickadd]'); if (qa) quickAddMaterial(qa.closest('.itemform').querySelector('.matslot'), qa.dataset.quickadd); };
+  form.onchange = e => { if (e.target.name === 'materialType') { const n = e.target.closest('.itemform'); n.querySelector('.matslot').innerHTML = matSlot({ materialType: e.target.value }); } };
+}
+function renderOrders() {
+  const list = [...costDb.orders].sort((a, b) => b.date.localeCompare(a.date)).filter(o => !search || [o.store, o.orderNo, ...o.lines.map(l => materialLabel(l.materialType, l.materialId))].join(' ').toLowerCase().includes(search.toLowerCase()));
+  return `<div class="pagehead"><h2>採購紀錄</h2><button class="primary" data-act="newOrder">＋ 登記購買</button></div>
+  <input class="listsearch" id="search" placeholder="搜尋商店、訂單編號或材料" value="${esc(search)}">
+  ${list.map(o => { let subtotal = o.lines.reduce((s, l) => s + num(l.qty) * num(l.unitPrice), 0); return `<div class="costcard"><h3>${esc(o.store || '未填商店')} · ${esc(o.date)}</h3><p>訂單 ${o.orderNo ? esc(o.orderNo) : '—'} · 實付 ${money(subtotal + num(o.shipping) - num(o.discount))}<button class="infobtn" data-info="商品小計 ${money(subtotal)}，加運費 ${money(o.shipping)}，扣折扣 ${money(o.discount)}。">i</button></p>${o.lines.map(l => `<div class="rowline">${esc(materialLabel(l.materialType, l.materialId))} · ${num(l.qty)} × ${money(l.unitPrice)}<button class="smallbtn" style="margin-left:8px" data-act="editLine" data-id="${o.id}" data-ref="${l.id}">修改</button></div>`).join('')}<p>${esc(o.note || '')}</p><div class="actions" style="display:flex"><button data-act="editOrder" data-id="${o.id}">修改訂單資料</button></div></div>`; }).join('') || '<div class="emptyhint">記下第一次購買，材料庫會跟著同步入庫。</div>'}`;
 }
 
 /* ---------- 詳細面板 ---------- */
 function openSheet(t, code) {
-  type = t; // 保持分頁一致
+  type = t;
   const x = t === 'dmc' ? DMC.find(i => i.c === code) : db.custom.find(i => i.id === code);
   if (!x) return;
   openKey = code;
-  const r = rec(t, code) || { qty: 0, level: 'full', wish: false, scrap: false, note: '' };
+  const r = rec(t, code) || { qty: 0, level: 'full', wish: false, scrap: false, note: '', photos: [] };
   const simple = typeOf(t).simple;
 
   document.getElementById('sheetBody').innerHTML = `
@@ -472,6 +468,11 @@ function openSheet(t, code) {
       <div class="toggles"><button class="wish" data-tg="wish" aria-pressed="${!!r.wish}"><b>${r.wish ? '已在待買' : '加入待買'}</b><small>下次補貨</small></button></div>
     </div>` : ''}
 
+    <div class="block"><div class="lab">照片（至多兩張）</div>
+      <div class="cover">${(r.photos||[]).map(p=>`<span style="position:relative;display:inline-block"><img data-photo="${esc(p)}" alt=""><button type="button" class="xbtn" data-delphoto="${esc(p)}" style="position:absolute;top:-6px;right:-6px;width:22px;height:22px;font-size:11px">✕</button></span>`).join('')}</div>
+      ${(r.photos||[]).length < 2 ? `<input type="file" id="matPhotoInput" accept="image/*" multiple>` : '<p class="muted">已達兩張上限，先移除才能再加。</p>'}
+    </div>
+
     <div class="block"><div class="lab">備註</div>
       <textarea class="note" id="noteBox" placeholder="例如：放在第二層鐵盒、留給聖誕圖">${esc(r.note)}</textarea>
     </div>
@@ -482,6 +483,7 @@ function openSheet(t, code) {
   document.getElementById('scrim').classList.add('on');
   document.getElementById('sheet').classList.add('on');
   App.fitDialogs();
+  paintPhotos();
 }
 function closeSheet() {
   const nb = document.getElementById('noteBox');
@@ -494,32 +496,30 @@ function closeSheet() {
 
 /* ---------- 主渲染 ---------- */
 function render() {
-  const crumb = view === 'proj' ? [{label:'作品',href:'cost.html#pieces'},{label:'配色'}]
+  history.replaceState(null, '', '#' + view);
+  const crumb = view === 'purchases' ? [{label:'材料庫',href:'shelf.html'},{label:'採購紀錄'}]
     : view === 'wish' ? [{label:'材料庫',href:'shelf.html'},{label:'預購物品'}]
     : [{label:'材料庫',href:'shelf.html'},{label:'總覽'}];
   document.querySelector('.crumbnav')?.remove();
   document.querySelector('header .wrap').insertAdjacentHTML('beforeend', App.breadcrumb(crumb));
 
   const m = document.getElementById('main');
-  m.innerHTML = view === 'shelf' ? typeTabs() + renderShelf()
-    : view === 'proj' ? renderProj() : renderWish();
-
-  App.initNav(view === 'proj' ? 'projects' : 'materials');
+  m.innerHTML = sectionTabs() + (view === 'shelf' ? typeTabs() + renderShelf() : view === 'purchases' ? renderOrders() : renderWish());
+  paintPhotos();
+  App.initNav('materials');
 }
 
 /* ---------- 事件 ---------- */
-document.addEventListener('click', e => {
-  if (Date.now() - lastDragEnd < 450) return;
+document.addEventListener('click', async e => {
   const t = e.target;
   const hit = s => t.closest(s);
 
   const mb = hit('[data-m]');
-  if (mb) {
-    if (mb.dataset.m === 'ok') { const cb = modalCb; hideModal(); if (cb) cb(); }
-    else hideModal();
-    return;
-  }
+  if (mb) { if (mb.dataset.m === 'ok') { const cb = modalCb; hideModal(); if (cb) cb(); } else hideModal(); return; }
   if (t.id === 'mscrim') return hideModal();
+
+  const gov = hit('[data-gov]');
+  if (gov) { view = gov.dataset.gov; search = ''; return render(); }
 
   const tb = hit('[data-type]');
   if (tb) { type = tb.dataset.type; statusSel = new Set(); familySel = new Set(); filterOpen = false; return render(); }
@@ -532,16 +532,20 @@ document.addEventListener('click', e => {
   if (ff) { const k = ff.dataset.ffam; familySel.has(k) ? familySel.delete(k) : familySel.add(k); return render(); }
   if (filterOpen && !hit('#filterPop') && !hit('#openFilter')) { filterOpen = false; return render(); }
 
-  if (hit('#openPickFilter')) { filterOpen = !filterOpen; return render(); }
-  if (hit('#closePickFilter')) { filterOpen = false; return render(); }
-  const pf = hit('[data-pfam]');
-  if (pf) { const k = pf.dataset.pfam; pickFamilySel.has(k) ? pickFamilySel.delete(k) : pickFamilySel.add(k); return render(); }
-
   const op = hit('[data-open]');
   if (op) return openSheet(type, op.dataset.open);
 
   if (hit('#qclr')) { q = ''; return render(); }
   if (hit('#addItem')) return itemForm(type, null);
+
+  const delph = hit('[data-delphoto]');
+  if (delph && openKey !== null) {
+    const key0 = delph.dataset.delphoto;
+    try { await App.delPhoto(key0); } catch (_) {}
+    const r = rec(type, openKey) || { photos: [] };
+    setRec(type, openKey, { photos: (r.photos || []).filter(p => p !== key0) });
+    return openSheet(type, openKey);
+  }
 
   const step = hit('[data-step]');
   if (step && openKey !== null) {
@@ -552,11 +556,7 @@ document.addEventListener('click', e => {
     return;
   }
   const lv = hit('[data-lv]');
-  if (lv && openKey !== null) {
-    setRec(type, openKey, { level: lv.dataset.lv });
-    lv.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === lv));
-    return;
-  }
+  if (lv && openKey !== null) { setRec(type, openKey, { level: lv.dataset.lv }); lv.parentElement.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', b === lv)); return; }
   const tg = hit('[data-tg]');
   if (tg && openKey !== null) {
     const f = tg.dataset.tg;
@@ -583,21 +583,14 @@ document.addEventListener('click', e => {
   if (hit('#editCustom') && openKey !== null) return itemForm(type, db.custom.find(x => x.id === openKey));
 
   const bq = hit('[data-bq]');
-  if (bq) {
-    const parts = bq.dataset.bq.split('|');
-    const sid = parts[0], d = Number(parts[1]);
-    buyQty[sid] = Math.max(1, (buyQty[sid] || 1) + d);
-    return render();
-  }
+  if (bq) { const parts = bq.dataset.bq.split('|'); const sid = parts[0], d = Number(parts[1]); buyQty[sid] = Math.max(1, (buyQty[sid] || 1) + d); return render(); }
   const bought = hit('[data-bought]');
   if (bought) {
     const [tt, cc] = bought.dataset.bought.split('|');
-    const sid = tt + ':' + cc;
-    const n = buyQty[sid] || 1;
-    const r = db.stock[sid] || { qty: 0 };
-    db.stock[sid] = { ...r, wish: false, qty: (r.qty || 0) + n, level: 'full' };
-    delete buyQty[sid];
-    save(); toast(cc + ' 入庫 ' + n); return render();
+    const n = buyQty[tt + ':' + cc] || 1;
+    setRec(tt, cc, { wish: false, qty: (rec(tt, cc)?.qty || 0) + n, level: 'full' });
+    delete buyQty[tt + ':' + cc];
+    toast(cc + ' 入庫 ' + n); return render();
   }
   if (hit('#buyAll')) {
     const list = wishList();
@@ -608,157 +601,38 @@ document.addEventListener('click', e => {
       <div class="mrow"><button class="no" data-m="no">再看看</button>
       <button class="yes" data-m="ok">確定入庫</button></div>`, () => {
       let total = 0;
-      list.forEach(it => {
-        const sid = it.t + ':' + it.c;
-        const n = buyQty[sid] || 1;
-        const r = db.stock[sid] || { qty: 0 };
-        db.stock[sid] = { ...r, wish: false, qty: (r.qty || 0) + n, level: 'full' };
-        delete buyQty[sid];
-        total += n;
-      });
-      save(); toast('已入庫 ' + total + ' 項'); render();
+      list.forEach(it => { const n = buyQty[it.t + ':' + it.c] || 1; setRec(it.t, it.c, { wish: false, qty: (rec(it.t, it.c)?.qty || 0) + n, level: 'full' }); delete buyQty[it.t + ':' + it.c]; total += n; });
+      toast('已入庫 ' + total + ' 項'); render();
     });
     return;
   }
   if (hit('#clearWish')) {
     askConfirm('清空待買清單？', '清單上的項目會全部移除，庫存不受影響。', '清空', true, () => {
       Object.keys(db.stock).forEach(sid => { if (db.stock[sid].wish) db.stock[sid] = { ...db.stock[sid], wish: false }; });
-      Object.keys(db.stock).forEach(sid => { const v = db.stock[sid]; if (!v.qty && !v.wish && !v.scrap && !v.note) delete db.stock[sid]; });
+      Object.keys(db.stock).forEach(sid => { const v = db.stock[sid]; if (!v.qty && !v.wish && !v.scrap && !v.note && !(v.photos && v.photos.length)) delete db.stock[sid]; });
       save(); render();
     });
     return;
   }
 
-  // 配色
-  const pc = hit('[data-proj]');
-  if (pc) { projOpen = pc.dataset.proj || null; projPick = false; return render(); }
-  const pl = hit('[data-pl]');
-  if (pl) { db.projLayout = pl.dataset.pl; save(); return render(); }
-  const pk = hit('[data-pk]');
-  if (pk) { pickType = pk.dataset.pk; pickFamilySel = new Set(); return render(); }
-  if (hit('#newProj')) {
-    askText('新增配色紀錄', '之後隨時可以改名字。', '例如：聖誕小屋、媽媽的桌巾', '', '建立', name => {
-      if (!name) return;
-      const id = 'p' + Date.now().toString(36);
-      db.projects.push({ id, name, colors: [] });
-      save(); projOpen = id; projPick = true; render();
-    });
-    return;
-  }
-  if (hit('#pickColors')) { projPick = true; pickQ = ''; return render(); }
-  if (hit('#donePick')) { projPick = false; return render(); }
-  const pick = hit('[data-pick]');
-  if (pick && projOpen) {
-    const p = proj(projOpen), c = pick.dataset.pick;
-    const i = p.colors.findIndex(o => o.t === pickType && o.c === c);
-    if (i >= 0) p.colors.splice(i, 1); else p.colors.push({ t: pickType, c });
-    save(); return render();
-  }
-  const drop = hit('[data-drop]');
-  if (drop && projOpen) {
-    const [tt, c] = drop.dataset.drop.split('|');
-    askConfirm('從配色紀錄移除？', `${esc(c)} 會從這份配色紀錄中拿掉，庫存紀錄不受影響。`, '移除', true, () => {
-      const p = proj(projOpen);
-      p.colors = p.colors.filter(o => !(o.t === tt && o.c === c));
-      save(); render();
-    });
-    return;
-  }
-  if (hit('#renameProj') && projOpen) {
-    const p = proj(projOpen);
-    askText('改名字', '', '配色紀錄名稱', p.name, '儲存', name => { if (name) { p.name = name; save(); render(); } });
-    return;
-  }
-  if (hit('#delProj') && projOpen) {
-    const p = proj(projOpen);
-    askConfirm('刪掉這份配色紀錄？', `「${esc(p.name)}」的配色會消失，庫存和待買清單不受影響。`, '刪掉', true, () => {
-      db.projects = db.projects.filter(o => o.id !== projOpen);
-      save(); projOpen = null; render();
-    });
-    return;
-  }
-  if (hit('#wishMissing') && projOpen) {
-    const p = proj(projOpen);
-    let n = 0;
-    p.colors.forEach(it => { const r = rec(it.t, it.c); if (r && r.qty > 0) return; setRec(it.t, it.c, { wish: true }); n++; });
-    toast('已加入 ' + n + ' 項到待買清單'); return render();
+  const act = hit('[data-act]');
+  if (act) {
+    const a = act.dataset.act, id0 = act.dataset.id, ref = act.dataset.ref;
+    if (a === 'newOrder') return newOrder();
+    if (a === 'editOrder') return orderForm(order(id0));
+    if (a === 'editLine') return lineForm(order(id0), order(id0).lines.find(x => x.id === ref));
   }
 });
-
+document.addEventListener('change', async e => {
+  if (e.target.id === 'matPhotoInput' && openKey !== null) {
+    const r = rec(type, openKey) || { photos: [] };
+    try { const newPics = await App.saveFiles(e.target.files, r.photos || []); setRec(type, openKey, { photos: newPics }); openSheet(type, openKey); }
+    catch (_) { toast('照片儲存失敗'); }
+  }
+});
 document.addEventListener('input', e => {
-  if (e.target.id === 'q') {
-    q = e.target.value;
-    const el = document.getElementById('shelfBody');
-    if (el) el.innerHTML = shelfBody(); else render();
-  }
-  if (e.target.id === 'pq') {
-    pickQ = e.target.value;
-    const el = document.getElementById('pickBody');
-    if (el) el.innerHTML = pickBody(); else render();
-  }
+  if (e.target.id === 'q') { q = e.target.value; const el = document.getElementById('shelfBody'); if (el) el.innerHTML = shelfBody(); else render(); }
+  if (e.target.id === 'search') { search = e.target.value; const caret = e.target.selectionStart; render(); const x = document.getElementById('search'); x?.focus(); x?.setSelectionRange(caret, caret); }
 });
-
-/* ---------- 長壓拖曳排序（配色） ---------- */
-let dragS = null, lastDragEnd = 0;
-function pointOf(e) { return e.touches && e.touches[0] ? e.touches[0] : e; }
-function dragStart(e) {
-  if (!projOpen || projPick || view !== 'proj') return;
-  const sw = e.target.closest && e.target.closest('[data-idx]');
-  if (!sw) return;
-  const pt = pointOf(e);
-  dragS = { el: sw, x: pt.clientX, y: pt.clientY, on: false, timer: null };
-  dragS.timer = setTimeout(() => {
-    if (!dragS) return;
-    dragS.on = true;
-    document.body.classList.add('dragmode');
-    dragS.el.classList.add('dragging');
-    if (navigator.vibrate) navigator.vibrate(12);
-  }, 420);
-}
-function syncOrder(container) {
-  const nodes = Array.prototype.slice.call(container.querySelectorAll('[data-drop]'));
-  const p = proj(projOpen);
-  if (!p) return;
-  p.colors = nodes.map(n => { const parts = n.dataset.drop.split('|'); return { t: parts[0], c: parts[1] }; });
-  nodes.forEach((n, i) => n.setAttribute('data-idx', String(i)));
-}
-function dragMove(e) {
-  if (!dragS) return;
-  const pt = pointOf(e);
-  if (!dragS.on) {
-    if (Math.hypot(pt.clientX - dragS.x, pt.clientY - dragS.y) > 10) { clearTimeout(dragS.timer); dragS = null; }
-    return;
-  }
-  e.preventDefault();
-  const under = document.elementFromPoint(pt.clientX, pt.clientY);
-  const tgt = under && under.closest && under.closest('[data-idx]');
-  if (!tgt || tgt === dragS.el) return;
-  const container = dragS.el.parentElement;
-  if (!container || tgt.parentElement !== container) return;
-  const before = tgt.compareDocumentPosition(dragS.el) & Node.DOCUMENT_POSITION_FOLLOWING;
-  container.insertBefore(dragS.el, before ? tgt : tgt.nextSibling);
-  syncOrder(container);
-}
-function dragEnd() {
-  if (!dragS) return;
-  clearTimeout(dragS.timer);
-  const moved = dragS.on;
-  if (moved) {
-    dragS.el.classList.remove('dragging');
-    document.body.classList.remove('dragmode');
-    lastDragEnd = Date.now();
-    save();
-    toast('順序已更新');
-  }
-  dragS = null;
-  if (moved) render();
-}
-document.addEventListener('touchstart', dragStart, { passive: true });
-document.addEventListener('touchmove', dragMove, { passive: false });
-document.addEventListener('touchend', dragEnd);
-document.addEventListener('touchcancel', dragEnd);
-document.addEventListener('mousedown', dragStart);
-document.addEventListener('mousemove', dragMove);
-document.addEventListener('mouseup', dragEnd);
 
 render();

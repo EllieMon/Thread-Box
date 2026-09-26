@@ -30,7 +30,7 @@
     <div class="qa-row">
       <a class="qa" href="calendar.html"><img src="assets/calendar.webp" alt=""><span>日常記錄</span></a>
       <a class="qa" href="shelf.html#wish"><img src="assets/preorders.webp" alt=""><span>預購物品</span></a>
-      <a class="qa" href="cost.html#orders"><img src="assets/purchases.webp" alt=""><span>採購紀錄</span></a>
+      <a class="qa" href="shelf.html#purchases"><img src="assets/purchases.webp" alt=""><span>採購紀錄</span></a>
     </div>
 
     <div class="home-note">

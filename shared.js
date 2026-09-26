@@ -105,11 +105,11 @@ window.App = (() => {
   const NAV_GROUPS = [
     {key:'materials', label:'材料庫', icon:'materials', href:'shelf.html', children:[
       {key:'overview', label:'總覽', icon:'overview', href:'shelf.html'},
-      {key:'purchases', label:'採購紀錄', icon:'purchases', href:'cost.html#orders'},
+      {key:'purchases', label:'採購紀錄', icon:'purchases', href:'shelf.html#purchases'},
       {key:'preorders', label:'預購物品', icon:'preorders', href:'shelf.html#wish'}
     ]},
     {key:'projects', label:'作品', icon:'projects', href:'cost.html#pieces', children:[
-      {key:'palette', label:'配色', icon:'palette', href:'shelf.html#proj'},
+      {key:'palette', label:'配色', icon:'palette', href:'cost.html#palette'},
       {key:'finished', label:'成品紀錄', icon:'finished', href:'cost.html#pieces'}
     ]},
     {key:'calendar', label:'日曆', icon:'calendar', href:'calendar.html', children:null},
