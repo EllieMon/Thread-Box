@@ -24,8 +24,11 @@ function monthGrid(){const [y,m]=month.split('-').map(Number),first=new Date(y,m
 function render(){
   paintCrumb();
   const active=db.sessions.find(s=>!s.end),daily=db.sessions.filter(s=>dateOf(s.start)===selected),plans=db.plans.filter(p=>p.date<=selected&&(p.endDate||p.date)>=selected),total=db.sessions.filter(s=>dateOf(s.start).slice(0,7)===month).reduce((a,s)=>a+duration(s),0);
-root.innerHTML=`<div class="costcard"><div class="pagehead"><h3>快速記工作<button class="infobtn" data-info="開始、結束都可選目前或自訂時間。時數不會自動計入作品成本。">i</button></h3></div><p>${active?`進行中：${esc(active.start.replace('T',' '))}${active.pieceId?' · '+esc(piece(active.pieceId)?.name||''):''}`:'目前沒有進行中的工作紀錄'}</p><div class="quickactions"><button class="primary" data-act="${active?'stop':'start'}">${active?'結束工作':'開始工作'}</button><button class="smallbtn" data-act="manual">補登一段時間</button></div></div>
-<div class="monthbar"><button data-month="-1">‹</button><b>${month.replace('-',' 年 ')} 月</b><button data-month="1">›</button></div>${monthGrid()}
+root.innerHTML=`<div class="monthbar"><button data-month="-1">‹</button><b>${month.replace('-',' 年 ')} 月</b><button data-month="1">›</button></div>${monthGrid()}
+<div class="costcard" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
+  <h3 style="margin:0">快速記工作<button class="infobtn" data-info="${active?('進行中：'+esc(active.start.replace('T',' '))+(active.pieceId?' · '+esc(piece(active.pieceId)?.name||''):'')):'目前沒有進行中的工作紀錄。'} 開始、結束都可選目前或自訂時間，時數不會自動計入作品成本。">i</button></h3>
+  <div class="quickactions" style="margin:0"><button class="primary" data-act="${active?'stop':'start'}">${active?'結束工作':'開始工作'}</button><button class="smallbtn" data-act="manual">補登一段時間</button></div>
+</div>
 <div class="pagehead" style="margin-top:14px"><h2>${selected}</h2><button class="primary" data-act="newPlan">＋ 排程</button></div>
 <div class="daygrid">
   <div class="daytile stat"><b>${hours(total)}</b><small>本月已完成工時</small></div>
