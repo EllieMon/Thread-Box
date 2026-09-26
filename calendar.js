@@ -25,11 +25,14 @@ function render(){
   paintCrumb();
   const active=db.sessions.find(s=>!s.end),daily=db.sessions.filter(s=>dateOf(s.start)===selected),plans=db.plans.filter(p=>p.date<=selected&&(p.endDate||p.date)>=selected),total=db.sessions.filter(s=>dateOf(s.start).slice(0,7)===month).reduce((a,s)=>a+duration(s),0);
 root.innerHTML=`<div class="monthbar"><button data-month="-1">‹</button><b>${month.replace('-',' 年 ')} 月</b><button data-month="1">›</button></div>${monthGrid()}
-<div class="costcard" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap">
-  <h3 style="margin:0">快速記工作<button class="infobtn" data-info="${active?('進行中：'+esc(active.start.replace('T',' '))+(active.pieceId?' · '+esc(piece(active.pieceId)?.name||''):'')):'目前沒有進行中的工作紀錄。'} 開始、結束都可選目前或自訂時間，時數不會自動計入作品成本。">i</button></h3>
-  <div class="quickactions" style="margin:0"><button class="primary" data-act="${active?'stop':'start'}">${active?'結束工作':'開始工作'}</button><button class="smallbtn" data-act="manual">補登一段時間</button></div>
+<div class="costcard">
+  <h3 style="margin:0 0 10px">${selected}<button class="infobtn" data-info="${active?('進行中：'+esc(active.start.replace('T',' '))+(active.pieceId?' · '+esc(piece(active.pieceId)?.name||''):'')):'目前沒有進行中的工作紀錄。'} 開始／結束時間都可選目前或自訂；補登是手動輸入一段過去的時間；排程是預先規劃、還沒開始做的事項；工時不會自動計入作品成本。">i</button></h3>
+  <div class="quickactions">
+    <button class="btn" style="margin:0" data-act="${active?'stop':'start'}">${active?'結束工作':'開始工作'}</button>
+    <button class="btn ghost" style="margin:0" data-act="manual">補登時間</button>
+    <button class="btn ghost" style="margin:0" data-act="newPlan">＋ 排程</button>
+  </div>
 </div>
-<div class="pagehead" style="margin-top:14px"><h2>${selected}</h2><button class="primary" data-act="newPlan">＋ 排程</button></div>
 <div class="daygrid">
   <div class="daytile stat"><b>${hours(total)}</b><small>本月已完成工時</small></div>
   <div class="daytile stat"><b>${db.plans.filter(p=>p.date.slice(0,7)===month).length} 項</b><small>本月開始的排程</small></div>
