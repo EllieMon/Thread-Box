@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="繡日">
+<meta name="theme-color" content="#F8F1E3">
+<title>Stitchly｜繡日 · 材料庫</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito:wght@800&family=Noto+Sans+TC:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="styles.css"><link rel="manifest" href="manifest.webmanifest">
+</head>
+<body>
+<header><div class="wrap">
+  <div class="brand"><a href="index.html"><img class="brandmark" src="assets/stitchly-logo.webp" alt="繡日"><h1><span class="b-en">Stitchly</span><span class="b-sep">｜</span><span class="b-zh">繡日</span></h1></a></div>
+</div></header>
+
+<main class="wrap" id="main"></main>
+
+<div class="scrim" id="scrim"></div>
+<div class="sheet" id="sheet">
+  <div class="sheethead"><span class="grab"></span><button class="xbtn" id="closeSheet" aria-label="關閉">✕</button></div>
+  <div class="inner" id="sheetBody"></div>
+</div>
+<div class="mscrim" id="mscrim"></div>
+<div class="modal" id="modal"><div id="modalBody"></div></div>
+<div class="toast" id="toast"></div>
+<script src="shared.js"></script>
+<script src="dmc.js"></script>
+<script src="thread.js"></script>
+</body>
+</html>
