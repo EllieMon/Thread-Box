@@ -14,6 +14,11 @@ function render(){
   const materialTypes = (th.custom || []).length;
   const orders = cost.orders?.length || 0;
   const pieces = cost.pieces?.length || 0;
+  const days = App.backupOverdueDays();
+  const overdue = App.isBackupOverdue();
+  const backupInfoHtml = overdue
+    ? `<p class="pill warn" style="display:inline-block;margin-top:6px">${days===Infinity?'尚未備份過':'上次備份於 '+days+' 天前'} · 建議盡快備份</p>`
+    : `<p class="muted">上次備份於 ${days} 天前</p>`;
   root.innerHTML = `
   <div class="dashboard">
     <div class="stat"><b>${haveThread} 項</b><small>目前有庫存的材料</small></div>
@@ -23,6 +28,7 @@ function render(){
   </div>
   <div class="costcard">
     <div class="pagehead"><h3>資料備份<button class="infobtn" data-info="一次打包材料庫（線材/布/物品/配色）、成本（採購/作品/日曆工時）與照片，跟妳目前用的是同一份，換手機或清過資料後可從備份檔還原。">i</button></h3></div>
+    ${backupInfoHtml}
     <button class="btn" id="doExport">下載完整備份</button>
     <input type="file" id="restoreFile" accept=".json,application/json" style="margin:12px 0;width:100%">
     <button class="btn ghost" id="doImport">從選好的檔案還原</button>
@@ -36,7 +42,7 @@ function render(){
 }
 root.addEventListener('click', async e => {
   if (e.target.id === 'doExport') {
-    try { const txt = await App.backup(); App.download('Stitchly完整備份-'+App.today()+'.json', txt); toast('已下載完整備份'); }
+    try { const txt = await App.backup(); App.download('Stitchly完整備份-'+App.today()+'.json', txt); App.setLastBackup(); toast('已下載完整備份'); render(); }
     catch (_) { toast('備份失敗，請再試一次'); }
   }
   if (e.target.id === 'doImport') {

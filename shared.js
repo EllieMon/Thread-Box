@@ -52,6 +52,13 @@ window.App = (() => {
   }
   function download(name, body, type='application/json'){ const a=document.createElement('a'); const u=URL.createObjectURL(new Blob([body],{type})); a.href=u; a.download=name; a.click(); setTimeout(()=>URL.revokeObjectURL(u),10000); }
 
+  // ---------- 上次備份時間（純粹存在 localStorage，不算材料/成本資料） ----------
+  const LASTBACKUP_KEY = 'stitchly-lastbackup';
+  function getLastBackup(){ try { return localStorage.getItem(LASTBACKUP_KEY) || null; } catch (_) { return null; } }
+  function setLastBackup(){ try { localStorage.setItem(LASTBACKUP_KEY, new Date().toISOString()); } catch (_) {} }
+  function backupOverdueDays(){ const t = getLastBackup(); if (!t) return Infinity; return Math.floor((Date.now() - new Date(t).getTime()) / 86400000); }
+  function isBackupOverdue(){ return backupOverdueDays() >= 7; }
+
   // ---------- 鍵盤彈出時，動態夾住浮動視窗高度，避免按鈕被蓋住 ----------
   function fitDialogs(){
     const vv = window.visualViewport; const h = vv ? vv.height : window.innerHeight;
@@ -217,9 +224,9 @@ window.App = (() => {
     scrim.addEventListener('click', close);
     document.getElementById('navsheetClose').addEventListener('click', close);
   }
-  function openNavSheet(g, wishCount){
+  function openNavSheet(g){
     document.getElementById('navsheetBody').innerHTML = `<h3>${g.label}</h3><div class="navsheetlist">` +
-      g.children.map(c => `<a href="${c.href}">${navIconTag(c.icon)}<span>${c.label}${c.key==='preorders'&&wishCount?`<i class="badge">${wishCount}</i>`:''}</span></a>`).join('') +
+      g.children.map(c => `<a href="${c.href}">${navIconTag(c.icon)}<span>${c.label}</span></a>`).join('') +
       '</div>';
     document.getElementById('navscrim').classList.add('on');
     document.getElementById('navsheet').classList.add('on');
@@ -228,15 +235,14 @@ window.App = (() => {
   // activeGroupKey: 'materials' | 'projects' | 'calendar' | 'backup' | null（首頁傳 null）
   function initNav(activeGroupKey){
     ensureNavDom(); ensureInfoPop();
-    let wishCount = 0;
-    try { wishCount = Object.values(readThread().stock || {}).filter(v => v.wish).length; } catch (_) {}
+    const overdue = isBackupOverdue();
     document.getElementById('navbtns').innerHTML = NAV_GROUPS.map(g =>
-      `<button data-group="${g.key}" aria-current="${g.key===activeGroupKey?'page':'false'}">${navIconTag(g.icon)}<span>${g.label}${g.key==='materials'&&wishCount?`<i class="badge">${wishCount}</i>`:''}</span></button>`
+      `<button data-group="${g.key}" aria-current="${g.key===activeGroupKey?'page':'false'}">${navIconTag(g.icon)}<span>${g.label}${g.key==='backup'&&overdue?'<i class="navdot"></i>':''}</span></button>`
     ).join('');
     document.querySelectorAll('#navbtns [data-group]').forEach(btn => {
       btn.onclick = () => {
         const g = NAV_GROUPS.find(x => x.key === btn.dataset.group);
-        if (g.children) openNavSheet(g, wishCount); else location.href = g.href;
+        if (g.children) openNavSheet(g); else location.href = g.href;
       };
     });
   }
@@ -246,6 +252,7 @@ window.App = (() => {
     id, esc, money, today, num,
     photoDB, getPhoto, delPhoto, saveFiles, backup, restore, download,
     fitDialogs, ensureInfoPop, breadcrumb, initNav,
-    dateField, timeField, datetimeField
+    dateField, timeField, datetimeField,
+    getLastBackup, setLastBackup, backupOverdueDays, isBackupOverdue
   };
 })();

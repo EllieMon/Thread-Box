@@ -221,15 +221,20 @@ function itemForm(t, edit) {
       const name = (document.getElementById('iName').value || '').trim();
       const unit = (document.getElementById('iUnit').value || '個').trim();
       if (!name) return toast('請先填名稱');
-      let id2;
-      if (edit) { edit.name = name; edit.unit = unit; id2 = edit.id; }
-      else { const rec2 = { id: App.id(), type: t, name, unit }; db.custom.push(rec2); id2 = rec2.id; }
-      const fEl = document.getElementById('iPhotos');
-      if (fEl && fEl.files && fEl.files.length) {
-        try { const newPics = await App.saveFiles(fEl.files, pics); setRec(t, id2, { photos: newPics }); }
-        catch (_) { toast('照片儲存失敗，其餘資料已存'); }
-      }
-      save(); openKey = id2; render(); openSheet(t, id2);
+      const dup = db.custom.some(x => x.type === t && x.name === name && (!edit || x.id !== edit.id));
+      const proceed = async () => {
+        let id2;
+        if (edit) { edit.name = name; edit.unit = unit; id2 = edit.id; }
+        else { const rec2 = { id: App.id(), type: t, name, unit }; db.custom.push(rec2); id2 = rec2.id; }
+        const fEl = document.getElementById('iPhotos');
+        if (fEl && fEl.files && fEl.files.length) {
+          try { const newPics = await App.saveFiles(fEl.files, pics); setRec(t, id2, { photos: newPics }); }
+          catch (_) { toast('照片儲存失敗，其餘資料已存'); }
+        }
+        save(); openKey = id2; render(); openSheet(t, id2);
+      };
+      if (dup) askConfirm('名稱重複', `已經有一個同名的「${esc(name)}」了，要繼續嗎？`, '繼續', false, proceed);
+      else proceed();
     });
     return;
   }
@@ -334,14 +339,28 @@ function shelfBody() {
 }
 
 /* ---------- 畫面：待買清單（預購物品） ---------- */
+let wishQ = '';
 function renderWish() {
-  const list = wishList();
   let h = `<p class="muted">買回來之後，先調整每一項要入幾份，再按「入庫」；或一次按最下面的「全部入庫」。</p>`;
-  if (!list.length) {
+  if (!wishList().length) {
     h += `<div class="empty"><b>清單是空的</b>逛店前先來這裡看一眼，就不會又買到重複的材料了。</div>`;
     return h;
   }
-  h += list.map(it => {
+  h += `<div class="searchrow"><div class="search"><input id="wishQSearch" type="search" placeholder="搜尋色號或名稱" value="${esc(wishQ)}">${wishQ ? '<button class="clr" id="wishQClr" aria-label="清除">✕</button>' : ''}</div></div>`;
+  h += `<div id="wishListBody">${wishListBody()}</div>`;
+  h += `<button class="btn ghost" id="shareWish">分享文字清單</button>
+    <button class="btn ghost" id="clearWish">清空整張清單</button>`;
+  return h;
+}
+function wishListBody() {
+  const list = wishList().filter(it => {
+    if (!wishQ) return true;
+    const s = wishQ.toLowerCase().trim();
+    const hay = [codeLabel(it.t, it.col), it.col.brand, it.col.n, it.col.name].filter(Boolean).join(' ').toLowerCase();
+    return hay.includes(s);
+  });
+  if (!list.length) return `<div class="empty"><b>沒有符合的項目</b>換個關鍵字看看。</div>`;
+  return list.map(it => {
     const sid = it.t + ':' + it.c;
     const n = buyQty[sid] || 1;
     const unit = it.t === 'dmc' ? '束' : (it.col.unit || '份');
@@ -356,10 +375,16 @@ function renderWish() {
       </div>
       <button class="act" data-bought="${esc(it.t)}|${esc(it.c)}">入庫</button>
     </div>`;
-  }).join('');
-  h += `<button class="btn" id="buyAll" style="margin-top:16px">全部入庫（${list.length} 項）</button>
-    <button class="btn ghost" id="clearWish">清空整張清單</button>`;
-  return h;
+  }).join('') + `<button class="btn" id="buyAll" style="margin-top:16px">全部入庫（${list.length} 項）</button>`;
+}
+async function shareWishText() {
+  const list = wishList();
+  if (!list.length) return toast('清單是空的');
+  const lines = list.map(it => `・${codeLabel(it.t, it.col)}${it.col.n || it.col.name ? '　' + (it.col.n || it.col.name) : ''}`).join('\n');
+  const text = `預購物品清單（${list.length} 項）\n${lines}`;
+  if (navigator.share) { try { await navigator.share({ text }); return; } catch (_) { /* 使用者取消分享，不用額外提示 */ return; } }
+  try { await navigator.clipboard.writeText(text); toast('已複製到剪貼簿'); }
+  catch (_) { toast('複製失敗，請手動選取文字'); }
 }
 
 /* ---------- 畫面：採購紀錄（材料選擇器＋就地新增＋搜尋） ---------- */
@@ -614,6 +639,8 @@ document.addEventListener('click', async e => {
     });
     return;
   }
+  if (hit('#shareWish')) return shareWishText();
+  if (hit('#wishQClr')) { wishQ = ''; return render(); }
 
   const act = hit('[data-act]');
   if (act) {
@@ -633,6 +660,7 @@ document.addEventListener('change', async e => {
 document.addEventListener('input', e => {
   if (e.target.id === 'q') { q = e.target.value; const el = document.getElementById('shelfBody'); if (el) el.innerHTML = shelfBody(); else render(); }
   if (e.target.id === 'search') { search = e.target.value; const caret = e.target.selectionStart; render(); const x = document.getElementById('search'); x?.focus(); x?.setSelectionRange(caret, caret); }
+  if (e.target.id === 'wishQSearch') { wishQ = e.target.value; const el = document.getElementById('wishListBody'); if (el) el.innerHTML = wishListBody(); else render(); }
 });
 
 render();
