@@ -264,11 +264,11 @@ window.App = (() => {
   }
 
   return {
-    THREAD_KEY, COST_KEY, readThread, writeThread, readCost, writeCost,
+    THREAD_KEY, readThread, writeThread, readCost, writeCost,
     id, esc, money, today, num,
-    photoDB, getPhoto, delPhoto, saveFiles, backup, restore, download,
-    fitDialogs, ensureInfoPop, breadcrumb, initNav, killAutoFocus,
+    getPhoto, delPhoto, saveFiles, backup, restore, download,
+    fitDialogs, breadcrumb, initNav, killAutoFocus,
     dateField, timeField, datetimeField,
-    getLastBackup, setLastBackup, backupOverdueDays, isBackupOverdue
+    backupOverdueDays, isBackupOverdue, setLastBackup
   };
 })();

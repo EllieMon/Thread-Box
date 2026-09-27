@@ -370,7 +370,7 @@ function wishListBody() {
         <small>${esc([typeOf(it.t).label, it.col.brand, it.col.n || it.col.name].filter(Boolean).join(' · '))}</small></div>
       <div class="qty">
         <button data-bq="${esc(sid)}|-1" aria-label="少一份">−</button>
-        <span>${n}</span>
+        <span>${n} ${esc(unit)}</span>
         <button data-bq="${esc(sid)}|1" aria-label="多一份">＋</button>
       </div>
       <button class="act" data-bought="${esc(it.t)}|${esc(it.c)}">入庫</button>
